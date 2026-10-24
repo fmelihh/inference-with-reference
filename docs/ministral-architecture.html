@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ministral 3 8B Architecture</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=Instrument+Sans:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Same tokens as docs/iwr-explainer.html so the diagram reads as part of that page. */
+:root {
+  --bg: #f5f6f8; --panel: #ffffff; --ink: #17202c; --muted: #5d6878; --line: #dde2ea;
+  --accent: #3b5bdb; --copy: #1f8a5b; --copy-bg: #dff3e9;
+  --font-display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --font-body: "Instrument Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0f141b; --panel: #161d27; --ink: #e6ebf2; --muted: #98a3b3; --line: #273142; --accent: #8ea6ff; --copy: #5fd39b; --copy-bg: #173a2b; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #0f141b; --panel: #161d27; --ink: #e6ebf2; --muted: #98a3b3; --line: #273142; --accent: #8ea6ff; --copy: #5fd39b; --copy-bg: #173a2b; color-scheme: dark; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); padding: 32px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); }
+.page { max-width: 920px; margin: 0 auto; display: grid; gap: 12px; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+h1 { font-family: var(--font-display); font-size: clamp(1.6rem, 4vw, 2.2rem); margin: 0; }
+/* @diagram:start */
+.arch-wrap { overflow-x: auto; }
+.arch-wrap svg { display: block; width: 100%; min-width: 880px; height: auto; }
+.arch .bg { fill: var(--bg); }
+.arch .zone { fill: none; stroke: var(--muted); stroke-dasharray: 5 4; stroke-opacity: 0.6; }
+.arch .mask { fill: var(--bg); }
+.arch .node { fill: var(--panel); stroke: var(--ink); stroke-width: 1; }
+.arch .node.skip { stroke: var(--muted); stroke-dasharray: 5 4; }
+.arch .node.focal { fill: var(--copy-bg); stroke: var(--copy); stroke-width: 1.4; }
+.arch .name { fill: var(--ink); font: 600 14px var(--font-body); }
+.arch .name.skip { fill: var(--muted); }
+.arch .sub { fill: var(--muted); font: 400 10.5px var(--font-mono); }
+.arch .sub.focal { fill: var(--copy); }
+.arch .eyb { fill: var(--muted); font: 600 9px var(--font-mono); letter-spacing: 0.1em; }
+.arch .lbl { fill: var(--muted); font: 600 8.5px var(--font-mono); letter-spacing: 0.06em; }
+.arch .flow { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+.arch .flow.dash { stroke-dasharray: 5 4; }
+.arch .flow.focal { stroke: var(--copy); }
+.arch .tip { fill: var(--muted); }
+.arch .tip.focal { fill: var(--copy); }
+.arch .rule { stroke: var(--line); stroke-width: 1; }
+/* @diagram:end */
+</style>
+</head>
+<body>
+<div class="page">
+  <span class="eyebrow">mistralai/Ministral-3-8B-Instruct-2512</span>
+  <h1>Ministral 3 8B architecture</h1>
+<!-- @svg:start -->
+<div class="arch-wrap">
+<svg class="arch" viewBox="0 0 880 668" role="img" aria-labelledby="ministral-arch-title ministral-arch-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="ministral-arch-title">Ministral 3 8B architecture</title>
+  <desc id="ministral-arch-desc">Tokens are embedded, pass through 34 identical decoder blocks of grouped-query attention and a SwiGLU feed-forward layer that read and write a KV cache, and a final norm and LM head turn the result into next-token logits; the vision encoder is not used in our text-only deployment.</desc>
+  <defs>
+    <marker id="ma-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="tip" points="0 0, 8 3, 0 6"/></marker>
+    <marker id="ma-arrow-focal" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto-start-reverse"><polygon class="tip focal" points="0 0, 8 3, 0 6"/></marker>
+  </defs>
+  <rect class="bg" width="880" height="668"/>
+
+  <!-- zone: decoder block, repeated 34 times -->
+  <rect class="zone" x="176" y="184" width="468" height="240" rx="8"/>
+  <text class="eyb" x="192" y="204">DECODER BLOCK ×34 · FP8 WEIGHTS</text>
+
+  <!-- connectors (drawn before nodes) -->
+  <line class="flow" x1="420" y1="68" x2="420" y2="98" marker-end="url(#ma-arrow)"/>
+  <line class="flow dash" x1="184" y1="126" x2="218" y2="126" marker-end="url(#ma-arrow)"/>
+  <line class="flow" x1="420" y1="152" x2="420" y2="214" marker-end="url(#ma-arrow)"/>
+  <line class="flow" x1="420" y1="280" x2="420" y2="338" marker-end="url(#ma-arrow)"/>
+  <line class="flow" x1="420" y1="404" x2="420" y2="454" marker-end="url(#ma-arrow)"/>
+  <line class="flow" x1="420" y1="508" x2="420" y2="538" marker-end="url(#ma-arrow)"/>
+  <!-- repeat: output of one block feeds the next block's attention -->
+  <path class="flow dash" d="M220 372 H204 Q196 372 196 364 V256 Q196 248 204 248 H218" marker-end="url(#ma-arrow)"/>
+  <rect class="mask" x="128" y="304" width="60" height="12" rx="2"/>
+  <text class="lbl" x="158" y="313" text-anchor="middle">NEXT LAYER</text>
+  <!-- attention reads and writes the KV cache -->
+  <line class="flow focal" x1="622" y1="248" x2="690" y2="248" marker-start="url(#ma-arrow-focal)" marker-end="url(#ma-arrow-focal)"/>
+  <rect class="mask" x="626" y="226" width="60" height="12" rx="2"/>
+  <text class="lbl" x="656" y="235" text-anchor="middle">READ/WRITE</text>
+
+  <!-- nodes -->
+  <rect class="node" x="220" y="24" width="400" height="44" rx="6"/>
+  <text class="name" x="236" y="45">Input tokens</text>
+  <text class="sub" x="236" y="60">Tekken byte-level BPE · vocab 131,072</text>
+
+  <rect class="node skip" x="24" y="100" width="160" height="52" rx="6"/>
+  <text class="name skip" x="38" y="122">Vision encoder</text>
+  <text class="sub" x="38" y="139">Pixtral ViT · off</text>
+
+  <rect class="node" x="220" y="100" width="400" height="52" rx="6"/>
+  <text class="name" x="236" y="122">Token embedding</text>
+  <text class="sub" x="236" y="139">131,072 × 4096 · BF16</text>
+
+  <rect class="node" x="220" y="216" width="400" height="64" rx="6"/>
+  <text class="name" x="236" y="239">Attention + residual</text>
+  <text class="sub" x="236" y="256">RMSNorm → GQA 32 query / 8 KV heads × 128</text>
+  <text class="sub" x="236" y="270">RoPE θ=1e6 with YaRN ×16 · full attention</text>
+
+  <rect class="node focal" x="692" y="212" width="168" height="72" rx="6"/>
+  <text class="name" x="706" y="235">KV cache</text>
+  <text class="sub focal" x="706" y="252">136 KiB per token</text>
+  <text class="sub focal" x="706" y="267">rolled back on reject</text>
+
+  <rect class="node" x="220" y="340" width="400" height="64" rx="6"/>
+  <text class="name" x="236" y="363">Feed-forward + residual</text>
+  <text class="sub" x="236" y="380">RMSNorm → SwiGLU 4096 → 14,336 → 4096</text>
+  <text class="sub" x="236" y="394">per-tensor FP8 scales on every projection</text>
+
+  <rect class="node" x="220" y="456" width="400" height="52" rx="6"/>
+  <text class="name" x="236" y="478">Final RMSNorm + LM head</text>
+  <text class="sub" x="236" y="495">4096 → 131,072 logits · BF16, not tied</text>
+
+  <rect class="node" x="220" y="540" width="400" height="52" rx="6"/>
+  <text class="name" x="236" y="562">Next token</text>
+  <text class="sub" x="236" y="579">with n-gram drafting: up to 8 checked per pass</text>
+
+  <!-- legend -->
+  <line class="rule" x1="24" y1="616" x2="856" y2="616"/>
+  <text class="eyb" x="24" y="644">LEGEND</text>
+  <rect class="node" x="96" y="634" width="20" height="14" rx="3"/>
+  <text class="sub" x="124" y="645">compute layer</text>
+  <rect class="node focal" x="236" y="634" width="20" height="14" rx="3"/>
+  <text class="sub" x="264" y="645">state reused across passes</text>
+  <rect class="node skip" x="448" y="634" width="20" height="14" rx="3"/>
+  <text class="sub" x="476" y="645">not loaded</text>
+  <line class="flow dash" x1="584" y1="641" x2="616" y2="641" marker-end="url(#ma-arrow)"/>
+  <text class="sub" x="626" y="645">repeat / optional path</text>
+</svg>
+</div>
+<!-- @svg:end -->
+</div>
+</body>
+</html>

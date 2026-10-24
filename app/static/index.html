@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drafting</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header>
+  <h1>Drafting</h1>
+  <span class="mode" id="mode"></span>
+  <nav><a href="/">Documents</a><a href="/compare">Compare</a></nav>
+</header>
+<main>
+  <form class="panel row" id="upload">
+    <input type="file" name="file" accept=".txt,.md" required>
+    <button class="primary" type="submit">Upload</button>
+    <span class="error" id="error"></span>
+  </form>
+  <section class="panel">
+    <ul class="docs" id="docs"></ul>
+    <p class="muted" id="empty" hidden>No documents yet.</p>
+  </section>
+</main>
+<script type="module">
+const $ = (id) => document.getElementById(id);
+
+fetch("/api/config").then((r) => r.json()).then((c) => { $("mode").textContent = c.spec_mode; });
+
+async function load() {
+  const docs = await (await fetch("/api/documents")).json();
+  $("empty").hidden = docs.length > 0;
+  $("docs").replaceChildren(...docs.map((d) => {
+    const li = document.createElement("li");
+    const a = document.createElement("a");
+    a.href = `/editor/${d.id}`;
+    a.textContent = d.name;
+    const meta = document.createElement("span");
+    meta.className = "muted";
+    meta.textContent = `v${d.version} · ${new Date(d.updated_at).toLocaleString()}`;
+    li.append(a, meta);
+    return li;
+  }));
+}
+
+$("upload").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("error").textContent = "";
+  const resp = await fetch("/api/documents", { method: "POST", body: new FormData(e.target) });
+  if (!resp.ok) {
+    $("error").textContent = (await resp.json()).detail;
+    return;
+  }
+  e.target.reset();
+  load();
+});
+
+load();
+</script>
+</body>
+</html>

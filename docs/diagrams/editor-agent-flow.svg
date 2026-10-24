@@ -1,0 +1,193 @@
+<svg width="880" height="1040" class="arch" viewBox="0 0 880 1040" role="img" aria-labelledby="ea-title ea-desc" xmlns="http://www.w3.org/2000/svg">
+<style>
+/* Same tokens and diagram classes as docs/app-architecture.html. */
+:root {
+  --bg: #f5f6f8; --panel: #ffffff; --ink: #17202c; --muted: #5d6878; --line: #dde2ea;
+  --accent: #3b5bdb; --copy: #1f8a5b; --copy-bg: #dff3e9; --err: #c2410c;
+  --font-display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --font-body: "Instrument Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0f141b; --panel: #161d27; --ink: #e6ebf2; --muted: #98a3b3; --line: #273142; --accent: #8ea6ff; --copy: #5fd39b; --copy-bg: #173a2b; --err: #fb923c; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #0f141b; --panel: #161d27; --ink: #e6ebf2; --muted: #98a3b3; --line: #273142; --accent: #8ea6ff; --copy: #5fd39b; --copy-bg: #173a2b; --err: #fb923c; color-scheme: dark; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); padding: 32px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); }
+.page { max-width: 920px; margin: 0 auto; display: grid; gap: 12px; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+h1 { font-family: var(--font-display); font-size: clamp(1.6rem, 4vw, 2.2rem); margin: 0; }
+p.lede { margin: 0 0 8px; color: var(--muted); max-width: 70ch; line-height: 1.5; }
+.arch-wrap { overflow-x: auto; }
+.arch-wrap svg { display: block; width: 100%; min-width: 880px; height: auto; }
+.arch .bg { fill: var(--bg); }
+.arch .mask { fill: var(--bg); }
+.arch .band { fill: var(--panel); fill-opacity: 0.45; stroke: var(--muted); stroke-opacity: 0.45; stroke-dasharray: 5 4; }
+.arch .node { fill: var(--panel); stroke: var(--ink); stroke-width: 1; }
+.arch .node.focal { fill: var(--copy-bg); stroke: var(--copy); stroke-width: 1.4; }
+.arch .node.err { stroke: var(--err); stroke-dasharray: 4 3; }
+.arch .name { fill: var(--ink); font: 600 14px var(--font-body); }
+.arch .name.c { text-anchor: middle; font-size: 12px; }
+.arch .sub { fill: var(--muted); font: 400 10.5px var(--font-mono); }
+.arch .sub.focal { fill: var(--copy); }
+.arch .sub.err { fill: var(--err); }
+.arch .eyb { fill: var(--muted); font: 600 9px var(--font-mono); letter-spacing: 0.1em; }
+.arch .lbl { fill: var(--muted); font: 600 8.5px var(--font-mono); letter-spacing: 0.06em; }
+.arch .lbl.link { fill: var(--accent); }
+.arch .lbl.err { fill: var(--err); }
+.arch .flow { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+.arch .flow.link { stroke: var(--accent); }
+.arch .flow.err { stroke: var(--err); stroke-dasharray: 4 3; }
+.arch .tip { fill: var(--muted); }
+.arch .tip.link { fill: var(--accent); }
+.arch .tip.err { fill: var(--err); }
+.arch .rule { stroke: var(--line); stroke-width: 1; }
+</style>
+  <title id="ea-title">Editor agent flow</title>
+  <desc id="ea-desc">Opening the editor primes vLLM's prefix cache with the document. Each edit request is validated, the selection is wrapped in highlight tags or the whole document is used, messages are built and the model is called once with timing. The reply is spliced into the selection or cleaned as a full document, a run record is saved to MinIO, and the user reviews a diff and accepts or rejects it.</desc>
+  <defs>
+    <marker id="ea-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto-start-reverse"><polygon class="tip" points="0 0, 8 3, 0 6"/></marker>
+    <marker id="ea-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto-start-reverse"><polygon class="tip link" points="0 0, 8 3, 0 6"/></marker>
+    <marker id="ea-arrow-err" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto-start-reverse"><polygon class="tip err" points="0 0, 8 3, 0 6"/></marker>
+  </defs>
+  <rect class="bg" width="880" height="1040"/>
+
+  <!-- bands -->
+  <rect class="band" x="24" y="24" width="832" height="92" rx="8"/>
+  <text class="eyb" x="40" y="42">ON OPEN · POST /prime</text>
+  <rect class="band" x="24" y="132" width="832" height="840" rx="8"/>
+  <text class="eyb" x="40" y="150">PER EDIT · POST /edit → POST /versions</text>
+
+  <!-- connectors: prime row -->
+  <line class="flow" x1="260" y1="74" x2="338" y2="74" marker-end="url(#ea-arrow)"/>
+  <line class="flow link" x1="560" y1="74" x2="658" y2="74" marker-end="url(#ea-arrow-link)"/>
+  <rect class="mask" x="574" y="52" width="70" height="12" rx="2"/>
+  <text class="lbl link" x="609" y="61" text-anchor="middle">MAX_TOKENS=1</text>
+
+  <!-- connectors: edit flow -->
+  <line class="flow" x1="440" y1="210" x2="440" y2="234" marker-end="url(#ea-arrow)"/>
+  <line class="flow err" x1="550" y1="262" x2="658" y2="262" marker-end="url(#ea-arrow-err)"/>
+  <rect class="mask" x="574" y="240" width="58" height="12" rx="2"/>
+  <text class="lbl err" x="603" y="249" text-anchor="middle">INVALID</text>
+  <line class="flow" x1="440" y1="288" x2="440" y2="310" marker-end="url(#ea-arrow)"/>
+
+  <path class="flow" d="M380 342 H238 Q230 342 230 350 V394" marker-end="url(#ea-arrow)"/>
+  <rect class="mask" x="290" y="320" width="26" height="12" rx="2"/>
+  <text class="lbl" x="303" y="329" text-anchor="middle">YES</text>
+  <path class="flow" d="M500 342 H612 Q620 342 620 350 V394" marker-end="url(#ea-arrow)"/>
+  <rect class="mask" x="550" y="320" width="22" height="12" rx="2"/>
+  <text class="lbl" x="561" y="329" text-anchor="middle">NO</text>
+
+  <path class="flow" d="M230 448 V466 Q230 474 238 474 H440 V482" marker-end="url(#ea-arrow)"/>
+  <path class="flow" d="M620 448 V466 Q620 474 612 474 H440"/>
+
+  <line class="flow" x1="440" y1="536" x2="440" y2="570" marker-end="url(#ea-arrow)"/>
+  <rect class="mask" x="448" y="547" width="88" height="12" rx="2"/>
+  <text class="lbl" x="492" y="556" text-anchor="middle">SYSTEM + HUMAN</text>
+
+  <line class="flow link" x1="550" y1="598" x2="698" y2="598" marker-start="url(#ea-arrow-link)" marker-end="url(#ea-arrow-link)"/>
+  <rect class="mask" x="590" y="576" width="64" height="12" rx="2"/>
+  <text class="lbl link" x="622" y="585" text-anchor="middle">OPENAI API</text>
+
+  <line class="flow" x1="440" y1="624" x2="440" y2="640" marker-end="url(#ea-arrow)"/>
+  <path class="flow" d="M380 672 H238 Q230 672 230 680 V722" marker-end="url(#ea-arrow)"/>
+  <rect class="mask" x="290" y="650" width="26" height="12" rx="2"/>
+  <text class="lbl" x="303" y="659" text-anchor="middle">YES</text>
+  <path class="flow" d="M500 672 H612 Q620 672 620 680 V722" marker-end="url(#ea-arrow)"/>
+  <rect class="mask" x="550" y="650" width="22" height="12" rx="2"/>
+  <text class="lbl" x="561" y="659" text-anchor="middle">NO</text>
+
+  <path class="flow" d="M230 776 V790 Q230 798 238 798 H440 V810" marker-end="url(#ea-arrow)"/>
+  <path class="flow" d="M620 776 V790 Q620 798 612 798 H440"/>
+
+  <line class="flow" x1="550" y1="838" x2="698" y2="838" marker-end="url(#ea-arrow)"/>
+  <rect class="mask" x="590" y="816" width="64" height="12" rx="2"/>
+  <text class="lbl" x="622" y="825" text-anchor="middle">RUN RECORD</text>
+  <line class="flow" x1="440" y1="864" x2="440" y2="898" marker-end="url(#ea-arrow)"/>
+  <rect class="mask" x="448" y="875" width="86" height="12" rx="2"/>
+  <text class="lbl" x="491" y="884" text-anchor="middle">PROPOSED TEXT</text>
+  <line class="flow" x1="550" y1="926" x2="698" y2="926" marker-end="url(#ea-arrow)"/>
+  <rect class="mask" x="584" y="904" width="76" height="12" rx="2"/>
+  <text class="lbl" x="622" y="913" text-anchor="middle">ACCEPT · v{n+1}</text>
+
+  <!-- nodes: prime row -->
+  <rect class="node" x="60" y="52" width="200" height="44" rx="6"/>
+  <text class="name" x="74" y="71">Open editor</text>
+  <text class="sub" x="74" y="87">load latest version</text>
+  <rect class="node" x="340" y="52" width="220" height="44" rx="6"/>
+  <text class="name" x="354" y="71">Prime</text>
+  <text class="sub" x="354" y="87">system prompt + document</text>
+  <rect class="node focal" x="660" y="52" width="180" height="44" rx="6"/>
+  <text class="name" x="674" y="71">vLLM prefix cache</text>
+  <text class="sub focal" x="674" y="87">document KV kept warm</text>
+
+  <!-- nodes: edit flow -->
+  <rect class="node" x="330" y="158" width="220" height="52" rx="6"/>
+  <text class="name" x="344" y="180">Edit request</text>
+  <text class="sub" x="344" y="197">{instruction, selection}</text>
+
+  <rect class="node" x="330" y="236" width="220" height="52" rx="6"/>
+  <text class="name" x="344" y="258">Validate</text>
+  <text class="sub" x="344" y="275">strip · normalize_selection</text>
+
+  <rect class="node err" x="660" y="236" width="180" height="52" rx="6"/>
+  <text class="name" x="674" y="258">400 Bad Request</text>
+  <text class="sub err" x="674" y="275">nothing changes</text>
+
+  <polygon class="node" points="440,312 500,342 440,372 380,342"/>
+  <text class="name c" x="440" y="346">Selection?</text>
+
+  <rect class="node" x="120" y="396" width="220" height="52" rx="6"/>
+  <text class="name" x="134" y="418">Wrap selection</text>
+  <text class="sub" x="134" y="435">&lt;highlighted-text&gt; in place</text>
+  <rect class="node" x="510" y="396" width="220" height="52" rx="6"/>
+  <text class="name" x="524" y="418">Whole document</text>
+  <text class="sub" x="524" y="435">no tags</text>
+
+  <rect class="node" x="330" y="484" width="220" height="52" rx="6"/>
+  <text class="name" x="344" y="506">build_messages</text>
+  <text class="sub" x="344" y="523">rules + doc · instruction</text>
+
+  <rect class="node focal" x="330" y="572" width="220" height="52" rx="6"/>
+  <text class="name" x="344" y="594">Model call, timed</text>
+  <text class="sub focal" x="344" y="611">llm.invoke · perf_counter</text>
+
+  <rect class="node" x="700" y="572" width="140" height="52" rx="6"/>
+  <text class="name" x="714" y="594">vLLM :8001</text>
+  <text class="sub" x="714" y="611">ngram | off</text>
+
+  <polygon class="node" points="440,642 500,672 440,702 380,672"/>
+  <text class="name c" x="440" y="676">Selection?</text>
+
+  <rect class="node" x="120" y="724" width="220" height="52" rx="6"/>
+  <text class="name" x="134" y="746">Splice</text>
+  <text class="sub" x="134" y="763">one tag pair, else 400</text>
+  <rect class="node" x="510" y="724" width="220" height="52" rx="6"/>
+  <text class="name" x="524" y="746">Clean full output</text>
+  <text class="sub" x="524" y="763">strip one code fence</text>
+
+  <rect class="node" x="330" y="812" width="220" height="52" rx="6"/>
+  <text class="name" x="344" y="834">Save run</text>
+  <text class="sub" x="344" y="851">key · output_hash · tok/s</text>
+
+  <rect class="node" x="700" y="812" width="140" height="140" rx="6"/>
+  <text class="name" x="714" y="836">MinIO</text>
+  <text class="sub" x="714" y="853">runs/{id}.json</text>
+  <text class="sub" x="714" y="869">documents/</text>
+  <text class="sub" x="714" y="885">  {id}/v{n}.txt</text>
+
+  <rect class="node" x="330" y="900" width="220" height="52" rx="6"/>
+  <text class="name" x="344" y="922">Diff in editor</text>
+  <text class="sub" x="344" y="939">MergeView · Reject discards</text>
+
+  <!-- legend -->
+  <line class="rule" x1="24" y1="992" x2="856" y2="992"/>
+  <text class="eyb" x="24" y="1020">LEGEND</text>
+  <rect class="node" x="96" y="1010" width="20" height="14" rx="3"/>
+  <text class="sub" x="124" y="1021">step</text>
+  <rect class="node focal" x="190" y="1010" width="20" height="14" rx="3"/>
+  <text class="sub" x="218" y="1021">inference with reference</text>
+  <line class="flow link" x1="404" y1="1017" x2="436" y2="1017" marker-end="url(#ea-arrow-link)"/>
+  <text class="sub" x="446" y="1021">network hop</text>
+  <line class="flow err" x1="560" y1="1017" x2="592" y2="1017" marker-end="url(#ea-arrow-err)"/>
+  <text class="sub" x="602" y="1021">error path</text>
+</svg>

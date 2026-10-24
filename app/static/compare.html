@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compare</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header>
+  <h1>Compare</h1>
+  <span class="mode" id="mode"></span>
+  <nav><a href="/">Documents</a><a href="/compare">Compare</a></nav>
+</header>
+<main>
+  <section class="panel strip" id="totals"></section>
+  <section class="panel">
+    <table>
+      <thead><tr><th>Instruction</th><th class="num">IWR s</th><th class="num">Baseline s</th><th class="num">Speedup</th><th>Identical</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </section>
+</main>
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const sec = (v) => (v == null ? "—" : v.toFixed(2));
+const x = (v) => (v == null ? "—" : `${v.toFixed(2)}×`);
+
+fetch("/api/config").then((r) => r.json()).then((c) => { $("mode").textContent = c.spec_mode; });
+
+const { rows, totals } = await (await fetch("/api/runs/compare")).json();
+$("totals").textContent =
+  `Paired edits — IWR ${sec(totals.iwr)} s · baseline ${sec(totals.baseline)} s · speedup ${x(totals.speedup)}`;
+$("rows").replaceChildren(...rows.map((r) => {
+  const tr = document.createElement("tr");
+  const cells = [
+    [r.instruction, ""],
+    [sec(r.iwr_seconds), "num"],
+    [sec(r.baseline_seconds), "num"],
+    [x(r.speedup), "num"],
+    [r.identical == null ? "—" : r.identical ? "yes" : "no", ""],
+  ];
+  for (const [text, cls] of cells) {
+    const td = document.createElement("td");
+    td.textContent = text;
+    td.className = cls;
+    tr.append(td);
+  }
+  return tr;
+}));
+</script>
+</body>
+</html>

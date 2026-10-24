@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor</title>
+<link rel="stylesheet" href="/static/app.css">
+<!-- Every module resolves the shared CodeMirror/Lezer packages through this map, so each loads once. -->
+<script type="importmap">
+{
+  "imports": {
+    "@codemirror/state": "https://esm.sh/@codemirror/state@6.7.6",
+    "@codemirror/view": "https://esm.sh/@codemirror/view@6.43.13?external=@codemirror/state",
+    "@lezer/common": "https://esm.sh/@lezer/common@1.5.3",
+    "@lezer/highlight": "https://esm.sh/@lezer/highlight@1.2.5?external=@lezer/common",
+    "@codemirror/language": "https://esm.sh/@codemirror/language@6.13.1?external=@codemirror/state,@codemirror/view,@lezer/common,@lezer/highlight",
+    "codemirror": "https://esm.sh/codemirror@6.0.2?external=@codemirror/state,@codemirror/view,@codemirror/language,@lezer/common,@lezer/highlight",
+    "@codemirror/merge": "https://esm.sh/@codemirror/merge@6.12.2?external=@codemirror/state,@codemirror/view,@codemirror/language,@lezer/common,@lezer/highlight",
+    "@codemirror/lang-markdown": "https://esm.sh/@codemirror/lang-markdown@6.5.2?external=@codemirror/state,@codemirror/view,@codemirror/language,@lezer/common,@lezer/highlight"
+  }
+}
+</script>
+</head>
+<body>
+<header>
+  <h1 id="name">Editor</h1>
+  <span class="mode" id="mode"></span>
+  <nav><a href="/">Documents</a><a href="/compare">Compare</a></nav>
+</header>
+<main>
+  <section class="panel" id="edit-view">
+    <div id="editor"></div>
+  </section>
+  <section class="panel" id="diff-view" hidden>
+    <div id="diff"></div>
+    <div class="row" style="margin-top: 12px">
+      <button class="primary" id="accept">Accept</button>
+      <button id="reject">Reject</button>
+    </div>
+  </section>
+  <section class="panel">
+    <form class="row" id="run-form">
+      <span class="chip" id="chip">Whole document</span>
+      <input type="text" id="instruction" placeholder="Make this shorter…" autocomplete="off">
+      <button class="primary" id="run" type="submit">Run</button>
+    </form>
+    <p class="strip" id="strip"></p>
+    <p class="error" id="error"></p>
+  </section>
+</main>
+<script type="module" src="/static/editor.js"></script>
+</body>
+</html>

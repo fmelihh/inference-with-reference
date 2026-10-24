@@ -1,0 +1,7 @@
+results/
+.venv/
+.git/
+.superpowers/
+docs/
+tests/
+.env

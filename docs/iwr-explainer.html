@@ -1,0 +1,712 @@
+<title>Inference with Reference, Step by Step</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a narrow reading column for the idea, then a wide two-pane "decoder bench" (reference | output) with a step log and pass counter. */
+:root {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --ink: #17202c;
+  --muted: #5d6878;
+  --line: #dde2ea;
+  --accent: #3b5bdb;
+  --copy: #1f8a5b;      /* accepted draft tokens */
+  --copy-bg: #dff3e9;
+  --draft: #b7791f;     /* drafted span in the reference */
+  --draft-bg: #fbeed6;
+  --reject: #c2410c;
+  --reject-bg: #fde4d8;
+  --gen-bg: #e8ecf8;    /* model-generated tokens */
+  --font-display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --font-body: "Instrument Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --panel: #161d27; --ink: #e6ebf2; --muted: #98a3b3; --line: #273142;
+    --accent: #8ea6ff; --copy: #5fd39b; --copy-bg: #173a2b; --draft: #f0b65a; --draft-bg: #3d2f17;
+    --reject: #ff9a6b; --reject-bg: #44241a; --gen-bg: #222c45; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --panel: #161d27; --ink: #e6ebf2; --muted: #98a3b3; --line: #273142;
+  --accent: #8ea6ff; --copy: #5fd39b; --copy-bg: #173a2b; --draft: #f0b65a; --draft-bg: #3d2f17;
+  --reject: #ff9a6b; --reject-bg: #44241a; --gen-bg: #222c45; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 64px;
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 40px; }
+.prose { max-width: 68ch; display: grid; gap: 14px; }
+h1, h2 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; letter-spacing: -0.02em; }
+h2 { font-size: 1.45rem; font-weight: 700; }
+p { margin: 0; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.muted { color: var(--muted); }
+code, .tok, .mono { font-family: var(--font-mono); }
+code { font-size: 0.88em; background: var(--gen-bg); padding: 1px 5px; border-radius: 4px; }
+
+/* the loop: four real stages, so numbering is meaningful */
+.loop { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; counter-reset: s; }
+.loop li { list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.loop li::before { counter-increment: s; content: "Step " counter(s); display: block; font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 4px; }
+.loop b { display: block; font-family: var(--font-display); font-size: 1.05rem; margin-bottom: 2px; }
+.loop { padding: 0; margin: 0; }
+@media (max-width: 820px) { .loop { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 460px) { .loop { grid-template-columns: 1fr; } }
+
+/* bench */
+.bench { display: grid; gap: 16px; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.seg button { border: 0; background: transparent; color: var(--muted); padding: 8px 12px; font: 500 0.88rem var(--font-body); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--panel); }
+.btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 8px 14px; border-radius: 8px; font: 600 0.88rem var(--font-body); cursor: pointer; }
+.btn.primary { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.spacer { flex: 1; }
+
+.panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 820px) { .panes { grid-template-columns: 1fr; } }
+.pane { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; display: grid; gap: 10px; align-content: start; }
+.pane h3 { margin: 0; font: 600 0.8rem var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.tokens { font-size: 0.82rem; line-height: 2; word-break: break-word; min-height: 9rem; }
+.tok { padding: 2px 3px; border-radius: 4px; transition: background 0.2s; }
+.tok.nl { display: block; height: 0.4rem; }
+.tok.sel { text-decoration: underline dotted var(--muted); text-underline-offset: 4px; }
+.tok.match { background: var(--gen-bg); outline: 1px solid var(--accent); }
+.tok.drafted { background: var(--draft-bg); color: var(--draft); }
+.tok.copied { background: var(--copy-bg); color: var(--copy); }
+.tok.gen { background: var(--gen-bg); }
+.tok.cursor { display: inline-block; width: 8px; height: 1em; background: var(--accent); vertical-align: -2px; animation: blink 1s steps(2) infinite; padding: 0; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .tok.cursor { animation: none; } .tok { transition: none; } }
+
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.82rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 640px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.stat .k { font-size: 0.78rem; color: var(--muted); }
+.stat .v { font: 700 1.6rem var(--font-display); font-variant-numeric: tabular-nums; }
+
+.bars { display: grid; gap: 8px; }
+.bar { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr) 4rem; gap: 10px; align-items: center; font-size: 0.85rem; }
+.bar .track { height: 14px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.bar .fill { height: 100%; width: 0; background: var(--muted); transition: width 0.25s; }
+.bar.iwr .fill { background: var(--copy); }
+.bar .n { font-family: var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; }
+
+.log { font-family: var(--font-mono); font-size: 0.78rem; max-height: 15rem; overflow: auto; display: grid; gap: 4px; align-content: start; }
+.log div { padding: 4px 6px; border-radius: 4px; border-left: 3px solid var(--line); }
+.log .hit { border-left-color: var(--copy); }
+.log .miss { border-left-color: var(--muted); }
+.log .rej { color: var(--reject); }
+.log .acc { color: var(--copy); }
+
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 720px) { .facts { grid-template-columns: 1fr; } }
+.facts > div { display: grid; gap: 6px; }
+.facts h4 { margin: 0; font: 700 1.05rem var(--font-display); }
+
+/* model section */
+.model { display: grid; gap: 24px; border-top: 1px solid var(--line); padding-top: 40px; }
+.spec { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 16px; }
+.spec > div { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.spec h4 { margin: 0; font: 700 1.05rem var(--font-display); }
+.tbl-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+th, td { text-align: left; padding: 8px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font: 600 0.75rem var(--font-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mem { display: grid; gap: 8px; }
+.mem .track { display: flex; height: 26px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--bg); }
+.mem .seg-w { background: var(--accent); }
+.mem .seg-k { background: var(--copy); }
+.mem .seg-a { background: var(--draft); }
+.mem .keys { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.82rem; color: var(--muted); }
+.calc { font-family: var(--font-mono); font-size: 0.82rem; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; white-space: pre; }
+.src { font-size: 0.82rem; color: var(--muted); }
+.src a { color: var(--accent); }
+
+.arch-wrap { overflow-x: auto; }
+.arch-wrap svg { display: block; width: 100%; min-width: 880px; height: auto; }
+.arch .bg { fill: var(--bg); }
+.arch .zone { fill: none; stroke: var(--muted); stroke-dasharray: 5 4; stroke-opacity: 0.6; }
+.arch .mask { fill: var(--bg); }
+.arch .node { fill: var(--panel); stroke: var(--ink); stroke-width: 1; }
+.arch .node.skip { stroke: var(--muted); stroke-dasharray: 5 4; }
+.arch .node.focal { fill: var(--copy-bg); stroke: var(--copy); stroke-width: 1.4; }
+.arch .name { fill: var(--ink); font: 600 14px var(--font-body); }
+.arch .name.skip { fill: var(--muted); }
+.arch .sub { fill: var(--muted); font: 400 10.5px var(--font-mono); }
+.arch .sub.focal { fill: var(--copy); }
+.arch .eyb { fill: var(--muted); font: 600 9px var(--font-mono); letter-spacing: 0.1em; }
+.arch .lbl { fill: var(--muted); font: 600 8.5px var(--font-mono); letter-spacing: 0.06em; }
+.arch .flow { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+.arch .flow.dash { stroke-dasharray: 5 4; }
+.arch .flow.focal { stroke: var(--copy); }
+.arch .tip { fill: var(--muted); }
+.arch .tip.focal { fill: var(--copy); }
+.arch .dot { fill: var(--ink); }
+.arch .rule { stroke: var(--line); stroke-width: 1; }
+</style>
+
+<main class="wrap">
+  <header class="prose">
+    <span class="eyebrow">LLMA · prompt lookup · vLLM <code>ngram</code></span>
+    <h1>Inference with Reference, step by step</h1>
+    <p>When most of an answer already exists in the prompt, the model doesn't need to write it one token at a time. The decoder copies a guess from the reference, the model checks the whole guess in a single forward pass, and every token it agrees with is kept. The output is exactly what normal decoding would produce. Only the number of passes changes.</p>
+  </header>
+
+  <ol class="loop" aria-label="The decoding loop">
+    <li><b>Look up</b>Take the last 2–4 generated tokens and search for them in the reference text.</li>
+    <li><b>Draft</b>If found, copy up to 8 tokens that came next in the reference as a guess.</li>
+    <li><b>Verify</b>One forward pass scores all drafted tokens at once against what the model would write.</li>
+    <li><b>Accept</b>Keep the longest prefix that matches, plus the model's own next token. Throw away the rest.</li>
+  </ol>
+
+  <section class="diagrams" aria-label="Mechanism diagrams" style="display:grid;gap:16px">
+    <h2>How the parts fit</h2>
+
+<div class="arch-wrap">
+<svg class="arch" viewBox="0 0 880 444" role="img" aria-labelledby="iwr-mech-title iwr-mech-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="iwr-mech-title">Inference with reference mechanism</title>
+  <desc id="iwr-mech-desc">The n-gram matcher finds the end of the output inside the prompt document, copies the following tokens as a draft, the model verifies the whole draft in one forward pass, accepted tokens are appended to the output and rejected ones are rolled back from the KV cache before the next lookup.</desc>
+  <defs>
+    <marker id="im-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="tip" points="0 0, 8 3, 0 6"/></marker>
+  </defs>
+  <rect class="bg" width="880" height="444"/>
+
+  <!-- connectors -->
+  <line class="flow" x1="208" y1="70" x2="254" y2="70" marker-end="url(#im-arrow)"/>
+  <rect class="mask" x="211" y="48" width="40" height="12" rx="2"/>
+  <text class="lbl" x="231" y="57" text-anchor="middle">SEARCH</text>
+
+  <line class="flow" x1="440" y1="70" x2="486" y2="70" marker-end="url(#im-arrow)"/>
+  <rect class="mask" x="443" y="48" width="40" height="12" rx="2"/>
+  <text class="lbl" x="463" y="57" text-anchor="middle">COPY ≤8</text>
+
+  <line class="flow" x1="640" y1="70" x2="694" y2="70" marker-end="url(#im-arrow)"/>
+  <rect class="mask" x="647" y="48" width="40" height="12" rx="2"/>
+  <text class="lbl" x="667" y="57" text-anchor="middle">VERIFY</text>
+
+  <line class="flow" x1="776" y1="100" x2="776" y2="174" marker-end="url(#im-arrow)"/>
+  <rect class="mask" x="726" y="131" width="42" height="12" rx="2"/>
+  <text class="lbl" x="747" y="140" text-anchor="middle">LOGITS</text>
+
+  <line class="flow" x1="696" y1="206" x2="642" y2="206" marker-end="url(#im-arrow)"/>
+  <rect class="mask" x="649" y="184" width="40" height="12" rx="2"/>
+  <text class="lbl" x="669" y="193" text-anchor="middle">APPEND</text>
+
+  <path class="flow dash" d="M456 206 H356 Q348 206 348 198 V102" marker-end="url(#im-arrow)"/>
+  <rect class="mask" x="292" y="146" width="48" height="12" rx="2"/>
+  <text class="lbl" x="316" y="155" text-anchor="middle">LAST 2–4</text>
+
+  <line class="flow" x1="776" y1="236" x2="776" y2="298" marker-end="url(#im-arrow)"/>
+  <rect class="mask" x="718" y="261" width="50" height="12" rx="2"/>
+  <text class="lbl" x="743" y="270" text-anchor="middle">ROLLBACK</text>
+
+  <!-- nodes -->
+  <rect class="node" x="24" y="40" width="184" height="60" rx="6"/>
+  <text class="name" x="38" y="64">Prompt document</text>
+  <text class="sub" x="38" y="82">the reference text</text>
+
+  <rect class="node" x="256" y="40" width="184" height="60" rx="6"/>
+  <text class="name" x="270" y="64">N-gram matcher</text>
+  <text class="sub" x="270" y="82">find suffix in prompt</text>
+
+  <rect class="node" x="488" y="40" width="152" height="60" rx="6"/>
+  <text class="name" x="502" y="64">Draft tokens</text>
+  <text class="sub" x="502" y="82">what came next</text>
+
+  <rect class="node focal" x="696" y="40" width="160" height="60" rx="6"/>
+  <text class="name" x="710" y="64">Ministral 8B</text>
+  <text class="sub focal" x="710" y="82">all drafts, 1 pass</text>
+
+  <rect class="node" x="696" y="176" width="160" height="60" rx="6"/>
+  <text class="name" x="710" y="200">Accept / reject</text>
+  <text class="sub" x="710" y="218">prefix + 1 own token</text>
+
+  <rect class="node" x="456" y="176" width="184" height="60" rx="6"/>
+  <text class="name" x="470" y="200">Output so far</text>
+  <text class="sub" x="470" y="218">identical to normal</text>
+
+  <rect class="node" x="696" y="300" width="160" height="60" rx="6"/>
+  <text class="name" x="710" y="324">KV cache</text>
+  <text class="sub" x="710" y="342">drops rejected keys</text>
+
+  <!-- legend -->
+  <line class="rule" x1="24" y1="388" x2="856" y2="388"/>
+  <text class="eyb" x="24" y="420">LEGEND</text>
+  <rect class="node" x="96" y="410" width="20" height="14" rx="3"/>
+  <text class="sub" x="124" y="421">component</text>
+  <rect class="node focal" x="232" y="410" width="20" height="14" rx="3"/>
+  <text class="sub" x="260" y="421">one forward pass</text>
+  <line class="flow dash" x1="408" y1="417" x2="440" y2="417" marker-end="url(#im-arrow)"/>
+  <text class="sub" x="450" y="421">feeds the next lookup</text>
+</svg>
+</div>
+    <h2>One decoding step</h2>
+
+<div class="arch-wrap">
+<svg class="arch" viewBox="0 0 880 612" role="img" aria-labelledby="iwr-flow-title iwr-flow-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="iwr-flow-title">One decoding step with a reference</title>
+  <desc id="iwr-flow-desc">Each step checks whether the end of the output appears in the reference; if it does the following tokens are drafted and verified in one pass and the matching prefix plus one model token is kept, otherwise the model writes a single token, and the loop repeats until the end-of-sequence token or the token limit.</desc>
+  <defs>
+    <marker id="if-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="tip" points="0 0, 8 3, 0 6"/></marker>
+  </defs>
+  <rect class="bg" width="880" height="612"/>
+
+  <!-- connectors -->
+  <line class="flow" x1="260" y1="64" x2="260" y2="94" marker-end="url(#if-arrow)"/>
+
+  <line class="flow" x1="350" y1="140" x2="518" y2="140" marker-end="url(#if-arrow)"/>
+  <rect class="mask" x="420" y="118" width="28" height="12" rx="2"/>
+  <text class="lbl" x="434" y="127" text-anchor="middle">YES</text>
+
+  <line class="flow" x1="260" y1="184" x2="260" y2="238" marker-end="url(#if-arrow)"/>
+  <rect class="mask" x="228" y="205" width="24" height="12" rx="2"/>
+  <text class="lbl" x="240" y="214" text-anchor="middle">NO</text>
+
+  <line class="flow" x1="620" y1="164" x2="620" y2="202" marker-end="url(#if-arrow)"/>
+  <line class="flow" x1="620" y1="256" x2="620" y2="294" marker-end="url(#if-arrow)"/>
+
+  <path class="flow" d="M620 352 V392 Q620 400 612 400 H266"/>
+  <line class="flow" x1="260" y1="292" x2="260" y2="396"/>
+  <line class="flow" x1="260" y1="404" x2="260" y2="434" marker-end="url(#if-arrow)"/>
+
+  <line class="flow" x1="350" y1="480" x2="518" y2="480" marker-end="url(#if-arrow)"/>
+  <rect class="mask" x="420" y="458" width="28" height="12" rx="2"/>
+  <text class="lbl" x="434" y="467" text-anchor="middle">YES</text>
+
+  <path class="flow dash" d="M170 480 H64 Q56 480 56 472 V52 Q56 44 64 44 H178" marker-end="url(#if-arrow)"/>
+  <rect class="mask" x="64" y="256" width="24" height="12" rx="2"/>
+  <text class="lbl" x="76" y="265" text-anchor="middle">NO</text>
+
+  <!-- nodes -->
+  <rect class="node" x="180" y="24" width="160" height="40" rx="20"/>
+  <text class="name" x="260" y="49" text-anchor="middle">Next step</text>
+
+  <polygon class="node" points="260,96 350,140 260,184 170,140"/>
+  <text class="name" x="260" y="137" text-anchor="middle" style="font-size:12px">Suffix found</text>
+  <text class="name" x="260" y="152" text-anchor="middle" style="font-size:12px">in reference?</text>
+
+  <rect class="node" x="520" y="116" width="200" height="48" rx="6"/>
+  <text class="name" x="534" y="136">Draft from reference</text>
+  <text class="sub" x="534" y="153">copy the next ≤8 tokens</text>
+
+  <rect class="node focal" x="520" y="204" width="200" height="52" rx="6"/>
+  <text class="name" x="534" y="226">Verify in one pass</text>
+  <text class="sub focal" x="534" y="243">model scores every draft</text>
+
+  <rect class="node" x="520" y="296" width="200" height="56" rx="6"/>
+  <text class="name" x="534" y="318">Keep matching prefix</text>
+  <text class="sub" x="534" y="336">+1 own token, roll back rest</text>
+
+  <rect class="node" x="160" y="240" width="200" height="52" rx="6"/>
+  <text class="name" x="174" y="262">Model writes 1 token</text>
+  <text class="sub" x="174" y="279">normal decoding</text>
+
+  <circle class="dot" cx="260" cy="400" r="4"/>
+
+  <polygon class="node" points="260,436 350,480 260,524 170,480"/>
+  <text class="name" x="260" y="477" text-anchor="middle" style="font-size:12px">End token or</text>
+  <text class="name" x="260" y="492" text-anchor="middle" style="font-size:12px">token limit?</text>
+
+  <rect class="node" x="520" y="460" width="200" height="40" rx="20"/>
+  <text class="name" x="620" y="485" text-anchor="middle">Return output</text>
+
+  <!-- legend -->
+  <line class="rule" x1="24" y1="556" x2="856" y2="556"/>
+  <text class="eyb" x="24" y="588">LEGEND</text>
+  <rect class="node" x="96" y="578" width="28" height="14" rx="7"/>
+  <text class="sub" x="132" y="589">start / end</text>
+  <rect class="node" x="232" y="578" width="20" height="14" rx="3"/>
+  <text class="sub" x="260" y="589">step</text>
+  <polygon class="node" points="340,577 350,585 340,593 330,585"/>
+  <text class="sub" x="358" y="589">decision</text>
+  <rect class="node focal" x="444" y="578" width="20" height="14" rx="3"/>
+  <text class="sub" x="472" y="589">where the speedup comes from</text>
+</svg>
+</div>
+    <p class="muted" style="font-size:0.85rem">On our server this loop averaged 5.35 tokens per forward pass on a whole-document edit (Ministral 3 8B, n-gram drafting, 8 tokens per draft).</p>
+  </section>
+
+  <section class="bench" aria-labelledby="bench-h">
+    <div class="prose">
+      <h2 id="bench-h">Watch it on a drafting edit</h2>
+      <p class="muted">The user selected the third paragraph and asked to make it shorter. Compare the two ways the app can ask the model for the result.</p>
+    </div>
+
+    <div class="controls">
+      <div class="seg" role="group" aria-label="What the model returns">
+        <button id="mode-full" type="button" aria-pressed="true">Return whole document</button>
+        <button id="mode-sel" type="button" aria-pressed="false">Return selection only</button>
+      </div>
+      <span class="spacer"></span>
+      <button id="btn-step" class="btn" type="button">Step</button>
+      <button id="btn-play" class="btn primary" type="button">Play</button>
+      <button id="btn-reset" class="btn" type="button">Reset</button>
+    </div>
+
+    <div class="legend" aria-hidden="true">
+      <span><i class="sw" style="background:var(--gen-bg);outline:1px solid var(--accent)"></i>matched n-gram</span>
+      <span><i class="sw" style="background:var(--draft-bg)"></i>drafted from reference</span>
+      <span><i class="sw" style="background:var(--copy-bg)"></i>accepted copy</span>
+      <span><i class="sw" style="background:var(--gen-bg)"></i>written by the model</span>
+    </div>
+
+    <div class="panes">
+      <div class="pane">
+        <h3>Reference: the document in the prompt</h3>
+        <div id="ref" class="tokens"></div>
+      </div>
+      <div class="pane">
+        <h3>Model output</h3>
+        <div id="out" class="tokens"></div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="k">Output tokens</div><div class="v" id="s-tokens">0</div></div>
+      <div class="stat"><div class="k">Forward passes</div><div class="v" id="s-passes">0</div></div>
+      <div class="stat"><div class="k">Draft acceptance</div><div class="v" id="s-acc">–</div></div>
+      <div class="stat"><div class="k">Fewer passes</div><div class="v" id="s-speed">–</div></div>
+    </div>
+
+    <div class="panes">
+      <div class="pane">
+        <h3>Forward passes to finish</h3>
+        <div class="bars">
+          <div class="bar"><span>Normal decoding</span><div class="track"><div class="fill" id="b-base"></div></div><span class="n" id="n-base">0</span></div>
+          <div class="bar iwr"><span>With reference</span><div class="track"><div class="fill" id="b-iwr"></div></div><span class="n" id="n-iwr">0</span></div>
+        </div>
+        <p class="muted" style="font-size:0.85rem">Both runs produce the same tokens. Normal decoding needs one pass per token.</p>
+      </div>
+      <div class="pane">
+        <h3>Pass log</h3>
+        <div id="log" class="log" aria-live="polite"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="facts" aria-label="What this means for the drafting app">
+    <div>
+      <h4>What it saves</h4>
+      <p>Sequential forward passes, so latency and GPU time per request. With a whole-document edit, almost everything outside the selection is copied in long accepted runs.</p>
+    </div>
+    <div>
+      <h4>What it doesn't save</h4>
+      <p>Output tokens. The model still emits every token of the document. If the app only needs the selection, asking for the selection alone and splicing it in code is cheaper still.</p>
+    </div>
+    <div>
+      <h4>Why the output is identical</h4>
+      <p>A drafted token is kept only if it equals what the model would have chosen itself at that position. Wrong guesses cost a little extra compute in that pass and nothing else.</p>
+    </div>
+    <div>
+      <h4>Where it stops helping</h4>
+      <p>New text, like the rewritten paragraph, rarely matches the reference, so those tokens come one per pass. The simulation uses words as tokens; real tokenizers split finer, which usually makes runs longer.</p>
+    </div>
+  </section>
+
+  <section class="model" aria-labelledby="model-h">
+    <div class="prose">
+      <span class="eyebrow">The model we serve</span>
+      <h2 id="model-h">Meet Ministral 3 8B Instruct</h2>
+      <p><code>mistralai/Ministral-3-8B-Instruct-2512</code> is the middle size of Mistral's Ministral 3 family, released on 2 December 2025 under Apache 2.0. The family comes in 3B, 8B and 14B, each as Base, Instruct and Reasoning, and every variant can read images.</p>
+      <p>The models were not trained from scratch. Mistral calls the method <em>cascade distillation</em>: start from Mistral Small 3.1 (24B), prune it to 14B and distill, then prune 14B to 8B, then 8B to 3B. Each step trained on 1–3 trillion tokens, much less than a from-scratch run.</p>
+    </div>
+
+    <figure style="margin:0;display:grid;gap:8px">
+<div class="arch-wrap">
+<svg class="arch" viewBox="0 0 880 668" role="img" aria-labelledby="ministral-arch-title ministral-arch-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="ministral-arch-title">Ministral 3 8B architecture</title>
+  <desc id="ministral-arch-desc">Tokens are embedded, pass through 34 identical decoder blocks of grouped-query attention and a SwiGLU feed-forward layer that read and write a KV cache, and a final norm and LM head turn the result into next-token logits; the vision encoder is not used in our text-only deployment.</desc>
+  <defs>
+    <marker id="ma-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="tip" points="0 0, 8 3, 0 6"/></marker>
+    <marker id="ma-arrow-focal" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto-start-reverse"><polygon class="tip focal" points="0 0, 8 3, 0 6"/></marker>
+  </defs>
+  <rect class="bg" width="880" height="668"/>
+
+  <!-- zone: decoder block, repeated 34 times -->
+  <rect class="zone" x="176" y="184" width="468" height="240" rx="8"/>
+  <text class="eyb" x="192" y="204">DECODER BLOCK ×34 · FP8 WEIGHTS</text>
+
+  <!-- connectors (drawn before nodes) -->
+  <line class="flow" x1="420" y1="68" x2="420" y2="98" marker-end="url(#ma-arrow)"/>
+  <line class="flow dash" x1="184" y1="126" x2="218" y2="126" marker-end="url(#ma-arrow)"/>
+  <line class="flow" x1="420" y1="152" x2="420" y2="214" marker-end="url(#ma-arrow)"/>
+  <line class="flow" x1="420" y1="280" x2="420" y2="338" marker-end="url(#ma-arrow)"/>
+  <line class="flow" x1="420" y1="404" x2="420" y2="454" marker-end="url(#ma-arrow)"/>
+  <line class="flow" x1="420" y1="508" x2="420" y2="538" marker-end="url(#ma-arrow)"/>
+  <!-- repeat: output of one block feeds the next block's attention -->
+  <path class="flow dash" d="M220 372 H204 Q196 372 196 364 V256 Q196 248 204 248 H218" marker-end="url(#ma-arrow)"/>
+  <rect class="mask" x="128" y="304" width="60" height="12" rx="2"/>
+  <text class="lbl" x="158" y="313" text-anchor="middle">NEXT LAYER</text>
+  <!-- attention reads and writes the KV cache -->
+  <line class="flow focal" x1="622" y1="248" x2="690" y2="248" marker-start="url(#ma-arrow-focal)" marker-end="url(#ma-arrow-focal)"/>
+  <rect class="mask" x="626" y="226" width="60" height="12" rx="2"/>
+  <text class="lbl" x="656" y="235" text-anchor="middle">READ/WRITE</text>
+
+  <!-- nodes -->
+  <rect class="node" x="220" y="24" width="400" height="44" rx="6"/>
+  <text class="name" x="236" y="45">Input tokens</text>
+  <text class="sub" x="236" y="60">Tekken byte-level BPE · vocab 131,072</text>
+
+  <rect class="node skip" x="24" y="100" width="160" height="52" rx="6"/>
+  <text class="name skip" x="38" y="122">Vision encoder</text>
+  <text class="sub" x="38" y="139">Pixtral ViT · off</text>
+
+  <rect class="node" x="220" y="100" width="400" height="52" rx="6"/>
+  <text class="name" x="236" y="122">Token embedding</text>
+  <text class="sub" x="236" y="139">131,072 × 4096 · BF16</text>
+
+  <rect class="node" x="220" y="216" width="400" height="64" rx="6"/>
+  <text class="name" x="236" y="239">Attention + residual</text>
+  <text class="sub" x="236" y="256">RMSNorm → GQA 32 query / 8 KV heads × 128</text>
+  <text class="sub" x="236" y="270">RoPE θ=1e6 with YaRN ×16 · full attention</text>
+
+  <rect class="node focal" x="692" y="212" width="168" height="72" rx="6"/>
+  <text class="name" x="706" y="235">KV cache</text>
+  <text class="sub focal" x="706" y="252">136 KiB per token</text>
+  <text class="sub focal" x="706" y="267">rolled back on reject</text>
+
+  <rect class="node" x="220" y="340" width="400" height="64" rx="6"/>
+  <text class="name" x="236" y="363">Feed-forward + residual</text>
+  <text class="sub" x="236" y="380">RMSNorm → SwiGLU 4096 → 14,336 → 4096</text>
+  <text class="sub" x="236" y="394">per-tensor FP8 scales on every projection</text>
+
+  <rect class="node" x="220" y="456" width="400" height="52" rx="6"/>
+  <text class="name" x="236" y="478">Final RMSNorm + LM head</text>
+  <text class="sub" x="236" y="495">4096 → 131,072 logits · BF16, not tied</text>
+
+  <rect class="node" x="220" y="540" width="400" height="52" rx="6"/>
+  <text class="name" x="236" y="562">Next token</text>
+  <text class="sub" x="236" y="579">with n-gram drafting: up to 8 checked per pass</text>
+
+  <!-- legend -->
+  <line class="rule" x1="24" y1="616" x2="856" y2="616"/>
+  <text class="eyb" x="24" y="644">LEGEND</text>
+  <rect class="node" x="96" y="634" width="20" height="14" rx="3"/>
+  <text class="sub" x="124" y="645">compute layer</text>
+  <rect class="node focal" x="236" y="634" width="20" height="14" rx="3"/>
+  <text class="sub" x="264" y="645">state reused across passes</text>
+  <rect class="node skip" x="448" y="634" width="20" height="14" rx="3"/>
+  <text class="sub" x="476" y="645">not loaded</text>
+  <line class="flow dash" x1="584" y1="641" x2="616" y2="641" marker-end="url(#ma-arrow)"/>
+  <text class="sub" x="626" y="645">repeat / optional path</text>
+</svg>
+</div>
+      <figcaption class="muted" style="font-size:0.85rem">One decoder block is drawn; the model stacks 34 of them. Every block keeps its own slice of the KV cache, which is what speculative decoding rolls back when a drafted token is rejected.</figcaption>
+    </figure>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Part</th><th>Value</th><th>What it means</th></tr></thead>
+        <tbody>
+          <tr><td>Parameters</td><td class="num">8.4B + 0.4B</td><td>Language model plus a 410M vision encoder. We start vLLM with <code>--language-model-only</code>, so the vision part is skipped.</td></tr>
+          <tr><td>Layers</td><td class="num">34</td><td>Decoder blocks stacked on top of each other; every token passes through all 34.</td></tr>
+          <tr><td>Hidden size</td><td class="num">4096</td><td>The width of each token's vector inside the model.</td></tr>
+          <tr><td>Attention heads</td><td class="num">32 query / 8 KV</td><td>Grouped-query attention: every 4 query heads share one key/value head, so the KV cache is 4× smaller than with full multi-head attention.</td></tr>
+          <tr><td>Head dim</td><td class="num">128</td><td>Size of each attention head (32 × 128 = 4096).</td></tr>
+          <tr><td>Feed-forward</td><td class="num">14336, SwiGLU</td><td>The MLP in each block expands 3.5× and uses a gated SiLU activation.</td></tr>
+          <tr><td>Normalization</td><td class="num">RMSNorm</td><td>Simpler and cheaper than LayerNorm; standard in modern decoders.</td></tr>
+          <tr><td>Attention type</td><td class="num">full, every layer</td><td>No sliding windows and no linear-attention layers. That is why we picked it: speculative decoding only has to roll back a plain KV cache.</td></tr>
+          <tr><td>Positions</td><td class="num">RoPE + YaRN</td><td>Trained at 16,384 tokens, then stretched 16× with YaRN to 262,144. We cap it at 32,768 to save memory.</td></tr>
+          <tr><td>Vocabulary</td><td class="num">131,072</td><td>Tekken tokenizer (see below). Input embeddings and output head are separate matrices.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="spec">
+      <div>
+        <h4>Tekken tokenizer</h4>
+        <p>A byte-level BPE in the style of OpenAI's tiktoken, with 131K entries. A large vocabulary means common words, including many non-English ones, become single tokens, so a document is fewer tokens long.</p>
+        <p class="muted">Mistral lists English, French, Spanish, German, Italian, Portuguese, Dutch, Chinese, Japanese, Korean and Arabic, and says dozens more work. Turkish is not mentioned anywhere, so we should test it ourselves.</p>
+      </div>
+      <div>
+        <h4>FP8 weights</h4>
+        <p>The official checkpoint is already 8-bit floating point (E4M3). Each weight matrix has one scale for its weights and one fixed scale for its inputs, so matrix multiplies run on the GPU's FP8 units.</p>
+        <p class="muted">Embeddings, output head and vision tower stay in BF16. The weights are about 10.4 GB, which Mistral says fits in 12 GB of VRAM.</p>
+      </div>
+      <div>
+        <h4>Why n-gram drafting fits</h4>
+        <p>Mistral publishes no draft model, EAGLE head or multi-token prediction layers for Ministral 3. N-gram lookup needs none of those, because the document itself is the draft source.</p>
+        <p class="muted">The tokenizer matters here: the lookup matches token sequences, so the same text must tokenize the same way in the prompt and in the output. Byte-level BPE makes that the normal case.</p>
+      </div>
+    </div>
+
+    <div class="prose">
+      <h3 style="margin:0;font:700 1.15rem var(--font-display)">GPU memory on our card</h3>
+      <p class="muted">We give vLLM 30% of the 96 GB card, about 29 GB. The KV cache stores keys and values for every token in flight:</p>
+    </div>
+    <div class="calc">per token  = 2 (K,V) × 34 layers × 8 KV heads × 128 dims × 2 bytes = 139,264 B ≈ 136 KiB
+32K tokens = 139,264 × 32,768                                    ≈ 4.56 GB</div>
+    <div class="mem" role="img" aria-label="Memory split of the 28.8 GB budget: 10.4 GB weights, about 16 GB KV cache, about 2.4 GB activations and CUDA graphs">
+      <div class="track">
+        <div class="seg-w" style="width:36%"></div>
+        <div class="seg-k" style="width:56%"></div>
+        <div class="seg-a" style="width:8%"></div>
+      </div>
+      <div class="keys">
+        <span><i class="sw" style="background:var(--accent)"></i> Weights 10.4 GB</span>
+        <span><i class="sw" style="background:var(--copy)"></i> KV cache ≈ 16 GB, room for about 3.5 full 32K documents at once</span>
+        <span><i class="sw" style="background:var(--draft)"></i> Activations and CUDA graphs ≈ 2.4 GB (estimate)</span>
+      </div>
+    </div>
+
+    <div class="prose">
+      <h3 style="margin:0;font:700 1.15rem var(--font-display)">Published scores (8B)</h3>
+      <p class="muted">From Mistral's model card. None of these measure editing accuracy, which is what this project needs, so our own benchmark will matter more.</p>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Variant</th><th>Benchmark</th><th>Score</th><th>Measures</th></tr></thead>
+        <tbody>
+          <tr><td>Instruct</td><td>Arena Hard</td><td class="num">0.509</td><td>Hard chat prompts judged against a reference model</td></tr>
+          <tr><td>Instruct</td><td>WildBench</td><td class="num">66.8</td><td>Real user tasks scored by an LLM judge</td></tr>
+          <tr><td>Instruct</td><td>MATH Maj@1</td><td class="num">0.876</td><td>Competition math, one answer</td></tr>
+          <tr><td>Instruct</td><td>MM MTBench</td><td class="num">8.08</td><td>Multi-turn chat with images, out of 10</td></tr>
+          <tr><td>Base</td><td>Multilingual MMLU</td><td class="num">0.706</td><td>Knowledge questions in several languages</td></tr>
+          <tr><td>Base</td><td>MMLU Redux 5-shot</td><td class="num">0.793</td><td>Cleaned-up general knowledge test</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <h3 style="margin:0;font:700 1.15rem var(--font-display)">Serving tips</h3>
+      <p>Mistral's recommended vLLM flags are <code>--tokenizer_mode mistral --config_format mistral --load_format mistral</code>, which load its own tokenizer library and the single <code>consolidated.safetensors</code> file. We currently load the Hugging Face format, which also works. For production Mistral suggests temperature below 0.1; for edits we use 0, which also gives speculation the highest acceptance.</p>
+      <p class="src">Sources: <a href="https://huggingface.co/mistralai/Ministral-3-8B-Instruct-2512" target="_blank" rel="noopener">model card and config</a> · <a href="https://mistral.ai/news/mistral-3" target="_blank" rel="noopener">Mistral 3 announcement</a> · <a href="https://arxiv.org/abs/2601.08584" target="_blank" rel="noopener">Ministral 3 paper</a> · <a href="https://github.com/vllm-project/recipes/blob/main/Mistral/Ministral-3-Instruct.md" target="_blank" rel="noopener">vLLM recipe</a></p>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const PARAS = [
+    "Q3 Customer Retention Report",
+    "Churn fell from 4.1% to 3.2% across all subscription tiers this quarter.",
+    "The main reason for this improvement appears to be the new onboarding flow that we launched at the beginning of July, which guides new users through the core features step by step and has led to noticeably higher engagement during their first two weeks.",
+    "Premium users showed the lowest churn at 1.8%, while the basic tier remained the most volatile.",
+    "We recommend extending the onboarding flow to existing users in Q4."
+  ];
+  const REWRITE = "The new onboarding flow launched in July drove the improvement by raising engagement during their first two weeks.";
+  const SELECTED = 2, K = 8, NMAX = 4, NMIN = 2, NL = "¶";
+
+  const toks = s => s.split(" ");
+  const join = paras => paras.flatMap((p, i) => i ? [NL, ...toks(p)] : toks(p));
+  const REF = join(PARAS);
+  const selStart = join(PARAS.slice(0, SELECTED)).length + 1;
+  const selEnd = selStart + toks(PARAS[SELECTED]).length;
+  const TARGETS = {
+    full: join(PARAS.map((p, i) => i === SELECTED ? REWRITE : p)),
+    sel: toks(REWRITE)
+  };
+
+  const $ = id => document.getElementById(id);
+  let mode = "full", st, timer = null;
+
+  function reset() {
+    stop();
+    st = { out: [], kind: [], passes: 0, drafted: 0, accepted: 0, log: [], hl: null };
+    render();
+  }
+
+  function lookup(out) {
+    for (let n = Math.min(NMAX, out.length); n >= NMIN; n--) {
+      const suf = out.slice(-n);
+      for (let p = 0; p + n < REF.length; p++) {
+        let ok = true;
+        for (let j = 0; j < n; j++) if (REF[p + j] !== suf[j]) { ok = false; break; }
+        if (ok) return { at: p, n, draft: REF.slice(p + n, p + n + K) };
+      }
+    }
+    return null;
+  }
+
+  function step() {
+    const T = TARGETS[mode];
+    if (st.out.length >= T.length) return false;
+    st.passes++;
+    const m = lookup(st.out);
+    const pos = st.out.length;
+    if (m && m.draft.length) {
+      let a = 0;
+      while (a < m.draft.length && pos + a < T.length && m.draft[a] === T[pos + a]) a++;
+      st.drafted += m.draft.length; st.accepted += a;
+      for (let j = 0; j < a; j++) { st.out.push(T[pos + j]); st.kind.push("copied"); }
+      if (st.out.length < T.length) { st.out.push(T[st.out.length]); st.kind.push("gen"); }
+      st.hl = { mStart: m.at, mEnd: m.at + m.n, dEnd: m.at + m.n + m.draft.length };
+      const rej = m.draft.slice(a);
+      st.log.unshift({ hit: true, html: `#${st.passes} matched “${esc(REF.slice(m.at, m.at + m.n).join(" "))}” → drafted ${m.draft.length}: <span class="acc">${a} kept</span>${rej.length ? `, <span class="rej">${rej.length} dropped</span>` : ""} +1 own` });
+    } else {
+      st.out.push(T[pos]); st.kind.push("gen"); st.hl = null;
+      st.log.unshift({ hit: false, html: `#${st.passes} no match → model wrote “${esc(T[pos])}”` });
+    }
+    render();
+    return st.out.length < T.length;
+  }
+
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+  const span = (t, cls) => t === NL ? `<span class="tok nl"></span>` : `<span class="tok ${cls}">${esc(t)}</span> `;
+
+  function render() {
+    const h = st.hl;
+    $("ref").innerHTML = REF.map((t, i) => {
+      let c = i >= selStart && i < selEnd ? "sel" : "";
+      if (h && i >= h.mStart && i < h.mEnd) c += " match";
+      else if (h && i >= h.mEnd && i < h.dEnd) c += " drafted";
+      return span(t, c);
+    }).join("");
+    const T = TARGETS[mode];
+    $("out").innerHTML = st.out.map((t, i) => span(t, st.kind[i])).join("") + (st.out.length < T.length ? `<span class="tok cursor" aria-hidden="true"></span>` : "");
+    $("s-tokens").textContent = `${st.out.length}`;
+    $("s-passes").textContent = `${st.passes}`;
+    $("s-acc").textContent = st.drafted ? `${Math.round(100 * st.accepted / st.drafted)}%` : "–";
+    $("s-speed").textContent = st.passes ? `${(st.out.length / st.passes).toFixed(1)}×` : "–";
+    const max = TARGETS.full.length;
+    $("b-base").style.width = `${100 * st.out.length / max}%`;
+    $("b-iwr").style.width = `${100 * st.passes / max}%`;
+    $("n-base").textContent = st.out.length;
+    $("n-iwr").textContent = st.passes;
+    $("log").innerHTML = st.log.slice(0, 40).map(l => `<div class="${l.hit ? "hit" : "miss"}">${l.html}</div>`).join("") || `<div class="miss">Press Step or Play to start decoding.</div>`;
+    $("btn-play").textContent = timer ? "Pause" : (st.out.length >= T.length ? "Replay" : "Play");
+  }
+
+  function stop() { if (timer) { clearInterval(timer); timer = null; } }
+  function play() {
+    if (timer) { stop(); render(); return; }
+    if (st.out.length >= TARGETS[mode].length) reset();
+    const delay = matchMedia("(prefers-reduced-motion: reduce)").matches ? 60 : 450;
+    timer = setInterval(() => { if (!step()) { stop(); render(); } }, delay);
+    render();
+  }
+
+  function setMode(m) {
+    mode = m;
+    $("mode-full").setAttribute("aria-pressed", m === "full");
+    $("mode-sel").setAttribute("aria-pressed", m === "sel");
+    reset();
+  }
+
+  $("btn-step").addEventListener("click", () => { stop(); step(); render(); });
+  $("btn-play").addEventListener("click", play);
+  $("btn-reset").addEventListener("click", reset);
+  $("mode-full").addEventListener("click", () => setMode("full"));
+  $("mode-sel").addEventListener("click", () => setMode("sel"));
+
+  // open in a finished state so the first frame shows the result
+  reset();
+  while (step()) {}
+  render();
+})();
+</script>

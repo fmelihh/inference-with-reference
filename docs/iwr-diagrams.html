@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IWR Mechanism Diagrams</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=Instrument+Sans:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Same tokens and diagram classes as docs/iwr-explainer.html and docs/ministral-architecture.html. */
+:root {
+  --bg: #f5f6f8; --panel: #ffffff; --ink: #17202c; --muted: #5d6878; --line: #dde2ea;
+  --accent: #3b5bdb; --copy: #1f8a5b; --copy-bg: #dff3e9;
+  --font-display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --font-body: "Instrument Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0f141b; --panel: #161d27; --ink: #e6ebf2; --muted: #98a3b3; --line: #273142; --accent: #8ea6ff; --copy: #5fd39b; --copy-bg: #173a2b; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #0f141b; --panel: #161d27; --ink: #e6ebf2; --muted: #98a3b3; --line: #273142; --accent: #8ea6ff; --copy: #5fd39b; --copy-bg: #173a2b; color-scheme: dark; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); padding: 32px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); }
+.page { max-width: 920px; margin: 0 auto; display: grid; gap: 12px; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+h1 { font-family: var(--font-display); font-size: clamp(1.6rem, 4vw, 2.2rem); margin: 0; }
+h2 { font-family: var(--font-display); font-size: 1.3rem; margin: 24px 0 0; }
+.arch-wrap { overflow-x: auto; }
+.arch-wrap svg { display: block; width: 100%; min-width: 880px; height: auto; }
+.arch .bg { fill: var(--bg); }
+.arch .mask { fill: var(--bg); }
+.arch .node { fill: var(--panel); stroke: var(--ink); stroke-width: 1; }
+.arch .node.focal { fill: var(--copy-bg); stroke: var(--copy); stroke-width: 1.4; }
+.arch .name { fill: var(--ink); font: 600 14px var(--font-body); }
+.arch .sub { fill: var(--muted); font: 400 10.5px var(--font-mono); }
+.arch .sub.focal { fill: var(--copy); }
+.arch .eyb { fill: var(--muted); font: 600 9px var(--font-mono); letter-spacing: 0.1em; }
+.arch .lbl { fill: var(--muted); font: 600 8.5px var(--font-mono); letter-spacing: 0.06em; }
+.arch .flow { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+.arch .flow.dash { stroke-dasharray: 5 4; }
+.arch .tip { fill: var(--muted); }
+.arch .dot { fill: var(--ink); }
+.arch .rule { stroke: var(--line); stroke-width: 1; }
+</style>
+</head>
+<body>
+<div class="page">
+  <span class="eyebrow">Inference with reference</span>
+  <h1>IWR mechanism diagrams</h1>
+
+  <h2>How the parts fit</h2>
+<!-- @mech:start -->
+<div class="arch-wrap">
+<svg class="arch" viewBox="0 0 880 444" role="img" aria-labelledby="iwr-mech-title iwr-mech-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="iwr-mech-title">Inference with reference mechanism</title>
+  <desc id="iwr-mech-desc">The n-gram matcher finds the end of the output inside the prompt document, copies the following tokens as a draft, the model verifies the whole draft in one forward pass, accepted tokens are appended to the output and rejected ones are rolled back from the KV cache before the next lookup.</desc>
+  <defs>
+    <marker id="im-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="tip" points="0 0, 8 3, 0 6"/></marker>
+  </defs>
+  <rect class="bg" width="880" height="444"/>
+
+  <!-- connectors -->
+  <line class="flow" x1="208" y1="70" x2="254" y2="70" marker-end="url(#im-arrow)"/>
+  <rect class="mask" x="211" y="48" width="40" height="12" rx="2"/>
+  <text class="lbl" x="231" y="57" text-anchor="middle">SEARCH</text>
+
+  <line class="flow" x1="440" y1="70" x2="486" y2="70" marker-end="url(#im-arrow)"/>
+  <rect class="mask" x="443" y="48" width="40" height="12" rx="2"/>
+  <text class="lbl" x="463" y="57" text-anchor="middle">COPY ≤8</text>
+
+  <line class="flow" x1="640" y1="70" x2="694" y2="70" marker-end="url(#im-arrow)"/>
+  <rect class="mask" x="647" y="48" width="40" height="12" rx="2"/>
+  <text class="lbl" x="667" y="57" text-anchor="middle">VERIFY</text>
+
+  <line class="flow" x1="776" y1="100" x2="776" y2="174" marker-end="url(#im-arrow)"/>
+  <rect class="mask" x="726" y="131" width="42" height="12" rx="2"/>
+  <text class="lbl" x="747" y="140" text-anchor="middle">LOGITS</text>
+
+  <line class="flow" x1="696" y1="206" x2="642" y2="206" marker-end="url(#im-arrow)"/>
+  <rect class="mask" x="649" y="184" width="40" height="12" rx="2"/>
+  <text class="lbl" x="669" y="193" text-anchor="middle">APPEND</text>
+
+  <path class="flow dash" d="M456 206 H356 Q348 206 348 198 V102" marker-end="url(#im-arrow)"/>
+  <rect class="mask" x="292" y="146" width="48" height="12" rx="2"/>
+  <text class="lbl" x="316" y="155" text-anchor="middle">LAST 2–4</text>
+
+  <line class="flow" x1="776" y1="236" x2="776" y2="298" marker-end="url(#im-arrow)"/>
+  <rect class="mask" x="718" y="261" width="50" height="12" rx="2"/>
+  <text class="lbl" x="743" y="270" text-anchor="middle">ROLLBACK</text>
+
+  <!-- nodes -->
+  <rect class="node" x="24" y="40" width="184" height="60" rx="6"/>
+  <text class="name" x="38" y="64">Prompt document</text>
+  <text class="sub" x="38" y="82">the reference text</text>
+
+  <rect class="node" x="256" y="40" width="184" height="60" rx="6"/>
+  <text class="name" x="270" y="64">N-gram matcher</text>
+  <text class="sub" x="270" y="82">find suffix in prompt</text>
+
+  <rect class="node" x="488" y="40" width="152" height="60" rx="6"/>
+  <text class="name" x="502" y="64">Draft tokens</text>
+  <text class="sub" x="502" y="82">what came next</text>
+
+  <rect class="node focal" x="696" y="40" width="160" height="60" rx="6"/>
+  <text class="name" x="710" y="64">Ministral 8B</text>
+  <text class="sub focal" x="710" y="82">all drafts, 1 pass</text>
+
+  <rect class="node" x="696" y="176" width="160" height="60" rx="6"/>
+  <text class="name" x="710" y="200">Accept / reject</text>
+  <text class="sub" x="710" y="218">prefix + 1 own token</text>
+
+  <rect class="node" x="456" y="176" width="184" height="60" rx="6"/>
+  <text class="name" x="470" y="200">Output so far</text>
+  <text class="sub" x="470" y="218">identical to normal</text>
+
+  <rect class="node" x="696" y="300" width="160" height="60" rx="6"/>
+  <text class="name" x="710" y="324">KV cache</text>
+  <text class="sub" x="710" y="342">drops rejected keys</text>
+
+  <!-- legend -->
+  <line class="rule" x1="24" y1="388" x2="856" y2="388"/>
+  <text class="eyb" x="24" y="420">LEGEND</text>
+  <rect class="node" x="96" y="410" width="20" height="14" rx="3"/>
+  <text class="sub" x="124" y="421">component</text>
+  <rect class="node focal" x="232" y="410" width="20" height="14" rx="3"/>
+  <text class="sub" x="260" y="421">one forward pass</text>
+  <line class="flow dash" x1="408" y1="417" x2="440" y2="417" marker-end="url(#im-arrow)"/>
+  <text class="sub" x="450" y="421">feeds the next lookup</text>
+</svg>
+</div>
+<!-- @mech:end -->
+
+  <h2>One decoding step</h2>
+<!-- @flow:start -->
+<div class="arch-wrap">
+<svg class="arch" viewBox="0 0 880 612" role="img" aria-labelledby="iwr-flow-title iwr-flow-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="iwr-flow-title">One decoding step with a reference</title>
+  <desc id="iwr-flow-desc">Each step checks whether the end of the output appears in the reference; if it does the following tokens are drafted and verified in one pass and the matching prefix plus one model token is kept, otherwise the model writes a single token, and the loop repeats until the end-of-sequence token or the token limit.</desc>
+  <defs>
+    <marker id="if-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="tip" points="0 0, 8 3, 0 6"/></marker>
+  </defs>
+  <rect class="bg" width="880" height="612"/>
+
+  <!-- connectors -->
+  <line class="flow" x1="260" y1="64" x2="260" y2="94" marker-end="url(#if-arrow)"/>
+
+  <line class="flow" x1="350" y1="140" x2="518" y2="140" marker-end="url(#if-arrow)"/>
+  <rect class="mask" x="420" y="118" width="28" height="12" rx="2"/>
+  <text class="lbl" x="434" y="127" text-anchor="middle">YES</text>
+
+  <line class="flow" x1="260" y1="184" x2="260" y2="238" marker-end="url(#if-arrow)"/>
+  <rect class="mask" x="228" y="205" width="24" height="12" rx="2"/>
+  <text class="lbl" x="240" y="214" text-anchor="middle">NO</text>
+
+  <line class="flow" x1="620" y1="164" x2="620" y2="202" marker-end="url(#if-arrow)"/>
+  <line class="flow" x1="620" y1="256" x2="620" y2="294" marker-end="url(#if-arrow)"/>
+
+  <path class="flow" d="M620 352 V392 Q620 400 612 400 H266"/>
+  <line class="flow" x1="260" y1="292" x2="260" y2="396"/>
+  <line class="flow" x1="260" y1="404" x2="260" y2="434" marker-end="url(#if-arrow)"/>
+
+  <line class="flow" x1="350" y1="480" x2="518" y2="480" marker-end="url(#if-arrow)"/>
+  <rect class="mask" x="420" y="458" width="28" height="12" rx="2"/>
+  <text class="lbl" x="434" y="467" text-anchor="middle">YES</text>
+
+  <path class="flow dash" d="M170 480 H64 Q56 480 56 472 V52 Q56 44 64 44 H178" marker-end="url(#if-arrow)"/>
+  <rect class="mask" x="64" y="256" width="24" height="12" rx="2"/>
+  <text class="lbl" x="76" y="265" text-anchor="middle">NO</text>
+
+  <!-- nodes -->
+  <rect class="node" x="180" y="24" width="160" height="40" rx="20"/>
+  <text class="name" x="260" y="49" text-anchor="middle">Next step</text>
+
+  <polygon class="node" points="260,96 350,140 260,184 170,140"/>
+  <text class="name" x="260" y="137" text-anchor="middle" style="font-size:12px">Suffix found</text>
+  <text class="name" x="260" y="152" text-anchor="middle" style="font-size:12px">in reference?</text>
+
+  <rect class="node" x="520" y="116" width="200" height="48" rx="6"/>
+  <text class="name" x="534" y="136">Draft from reference</text>
+  <text class="sub" x="534" y="153">copy the next ≤8 tokens</text>
+
+  <rect class="node focal" x="520" y="204" width="200" height="52" rx="6"/>
+  <text class="name" x="534" y="226">Verify in one pass</text>
+  <text class="sub focal" x="534" y="243">model scores every draft</text>
+
+  <rect class="node" x="520" y="296" width="200" height="56" rx="6"/>
+  <text class="name" x="534" y="318">Keep matching prefix</text>
+  <text class="sub" x="534" y="336">+1 own token, roll back rest</text>
+
+  <rect class="node" x="160" y="240" width="200" height="52" rx="6"/>
+  <text class="name" x="174" y="262">Model writes 1 token</text>
+  <text class="sub" x="174" y="279">normal decoding</text>
+
+  <circle class="dot" cx="260" cy="400" r="4"/>
+
+  <polygon class="node" points="260,436 350,480 260,524 170,480"/>
+  <text class="name" x="260" y="477" text-anchor="middle" style="font-size:12px">End token or</text>
+  <text class="name" x="260" y="492" text-anchor="middle" style="font-size:12px">token limit?</text>
+
+  <rect class="node" x="520" y="460" width="200" height="40" rx="20"/>
+  <text class="name" x="620" y="485" text-anchor="middle">Return output</text>
+
+  <!-- legend -->
+  <line class="rule" x1="24" y1="556" x2="856" y2="556"/>
+  <text class="eyb" x="24" y="588">LEGEND</text>
+  <rect class="node" x="96" y="578" width="28" height="14" rx="7"/>
+  <text class="sub" x="132" y="589">start / end</text>
+  <rect class="node" x="232" y="578" width="20" height="14" rx="3"/>
+  <text class="sub" x="260" y="589">step</text>
+  <polygon class="node" points="340,577 350,585 340,593 330,585"/>
+  <text class="sub" x="358" y="589">decision</text>
+  <rect class="node focal" x="444" y="578" width="20" height="14" rx="3"/>
+  <text class="sub" x="472" y="589">where the speedup comes from</text>
+</svg>
+</div>
+<!-- @flow:end -->
+</div>
+</body>
+</html>
